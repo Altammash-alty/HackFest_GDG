@@ -36,11 +36,55 @@ class MedMitraClient {
         this.socket.on('medication_reminder', (data) => {
             this.waitingForMedicationResponse = true;
             this.handleReminder(data);
+            // Show browser notification if app is in background
+            this.showBrowserNotification(data);
         });
         
         this.socket.on('medmitra_response', (data) => {
             this.handleResponse(data);
         });
+        
+        // Request notification permission
+        this.requestNotificationPermission();
+        
+        // Keep connection alive
+        setInterval(() => {
+            if (this.socket && this.socket.connected) {
+                this.socket.emit('ping');
+            }
+        }, 30000); // Ping every 30 seconds
+    }
+    
+    async requestNotificationPermission() {
+        if ('Notification' in window && Notification.permission === 'default') {
+            try {
+                await Notification.requestPermission();
+            } catch (error) {
+                console.log('Notification permission request failed:', error);
+            }
+        }
+    }
+    
+    showBrowserNotification(data) {
+        if ('Notification' in window && Notification.permission === 'granted') {
+            const medication = data.medication;
+            const notification = new Notification('🔔 Medication Reminder', {
+                body: `${medication.name} ${medication.dosage} - Time to take your medication!`,
+                icon: '/static/icon-192.png',
+                badge: '/static/icon-192.png',
+                tag: 'medication-reminder',
+                requireInteraction: true,
+                vibrate: [200, 100, 200]
+            });
+            
+            notification.onclick = () => {
+                window.focus();
+                notification.close();
+            };
+            
+            // Auto-close after 10 seconds
+            setTimeout(() => notification.close(), 10000);
+        }
     }
 
     initializeVoiceRecognition() {
@@ -394,19 +438,62 @@ class MedMitraClient {
         // Show reminder card
         const reminderCard = document.getElementById('reminderCard');
         const reminderContent = document.getElementById('reminderContent');
+        const explanationDiv = document.getElementById('medicationExplanation');
+        const explanationText = document.getElementById('explanationText');
         
-        reminderContent.textContent = data.message;
+        // Format the reminder message - extract explanation separately
+        const messageParts = data.message.split('\n\n');
+        let formattedMessage = '';
+        let explanation = '';
+        
+        // Look for explanation pattern (usually contains "Yeh dawa" or similar)
+        for (let i = 0; i < messageParts.length; i++) {
+            const part = messageParts[i].trim();
+            // Check if this part is the explanation
+            if (part.includes('Yeh dawa') || part.includes('control') || 
+                part.includes('blood') || part.includes('pressure') || 
+                part.includes('sugar') || part.includes('cholesterol') ||
+                part.includes('thyroid') || part.includes('acid')) {
+                explanation = part;
+            } else if (part && !part.includes('Kya aapne') && !part.includes('Kripya')) {
+                // Include other parts except the question at the end
+                formattedMessage += part + '\n\n';
+            }
+        }
+        
+        // If no explanation found, try to get it from medication data
+        if (!explanation && data.medication) {
+            // We'll fetch it from the API if needed
+            this.fetchMedicationExplanation(data.medication.name).then(exp => {
+                if (exp) {
+                    explanationText.textContent = exp;
+                    explanationDiv.style.display = 'block';
+                }
+            });
+        }
+        
+        reminderContent.textContent = formattedMessage.trim() || data.message;
         reminderCard.style.display = 'block';
+        
+        // Show explanation if available
+        if (explanation) {
+            explanationText.textContent = explanation;
+            explanationDiv.style.display = 'block';
+        } else {
+            explanationDiv.style.display = 'none';
+        }
         
         // Store current reminder medication
         this.currentReminderMedication = data.medication;
         
-        // Speak the reminder
-        this.speak(data.message);
+        // Speak the reminder (only if page is visible)
+        if (!document.hidden) {
+            this.speak(data.message);
+        }
         
         // Auto-start voice listening after reminder is spoken
         setTimeout(() => {
-            if (this.recognition && !this.isListening) {
+            if (this.recognition && !this.isListening && !document.hidden) {
                 this.toggleVoiceInput();
             }
         }, 3000); // Wait 3 seconds after speaking to start listening
@@ -416,6 +503,17 @@ class MedMitraClient {
         
         // Add reminder to chat
         this.addMessage(data.message, 'medmitra');
+        
+        // Vibrate device if supported
+        if (navigator.vibrate) {
+            navigator.vibrate([200, 100, 200, 100, 200]);
+        }
+    }
+    
+    async fetchMedicationExplanation(medicationName) {
+        // This would fetch from an API endpoint if we add one
+        // For now, return null as explanation is already in the message
+        return null;
     }
 
     async checkCurrentReminder() {

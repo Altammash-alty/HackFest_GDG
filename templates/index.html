@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <meta name="description" content="MedMitra - Voice-first medication reminder assistant">
-    <meta name="theme-color" content="#4CAF50">
+    <meta name="theme-color" content="#6366f1">
     <title>MedMitra - Medication Reminder</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
     <link rel="manifest" href="{{ url_for('static', filename='manifest.json') }}">
@@ -32,9 +32,12 @@
                 <span class="logo-icon">🏥</span>
                 <h1>MedMitra</h1>
             </div>
-            <div class="status-indicator" id="statusIndicator">
-                <span class="status-dot"></span>
-                <span class="status-text">Connecting...</span>
+            <div class="header-actions">
+                <a href="/dashboard" class="dashboard-link" title="Caregiver Dashboard">📊 Dashboard</a>
+                <div class="status-indicator" id="statusIndicator">
+                    <span class="status-dot"></span>
+                    <span class="status-text">Connecting...</span>
+                </div>
             </div>
         </header>
 
@@ -48,6 +51,10 @@
                 </div>
                 <div class="reminder-content" id="reminderContent">
                     <!-- Reminder content will be inserted here -->
+                </div>
+                <div class="medication-explanation" id="medicationExplanation" style="display: none; margin-top: 1rem; padding: 1rem; background: rgba(255,255,255,0.15); border-radius: 8px;">
+                    <p style="font-weight: 600; margin-bottom: 0.5rem;">💊 Why this medicine?</p>
+                    <p id="explanationText" style="font-size: 0.95rem; line-height: 1.6;"></p>
                 </div>
                 <div class="reminder-instruction" id="reminderInstruction" style="margin-top: 1rem; padding-top: 1rem; border-top: 1px solid rgba(255,255,255,0.3);">
                     <p style="font-size: 0.9rem; opacity: 0.9;">🎤 Tap microphone and say "Haan" (Yes) or "Nahi" (No)</p>

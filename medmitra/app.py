@@ -30,8 +30,14 @@ current_medication = None
 
 @app.route('/')
 def index():
-    """Serve the main application page"""
+    """Serve the main application page (Patient App)"""
     return render_template('index.html')
+
+
+@app.route('/dashboard')
+def dashboard():
+    """Serve the caregiver dashboard"""
+    return render_template('dashboard.html')
 
 
 @app.route('/static/sw.js')
@@ -76,7 +82,67 @@ def add_medication():
         )
         
         medication_manager.add_medication(medication)
+        
+        # Notify connected clients
+        socketio.emit('medication_added', {
+            'medication': {
+                'name': medication.name,
+                'dosage': medication.dosage,
+                'time_slot': medication.time_slot.value
+            }
+        })
+        
         return jsonify({'success': True, 'message': 'Medication added successfully'})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 400
+
+
+@app.route('/api/medications/<medication_name>', methods=['DELETE'])
+def delete_medication(medication_name):
+    """Delete a medication"""
+    try:
+        # Find and remove medication
+        medication_to_remove = None
+        for med in medication_manager.medications:
+            if med.name == medication_name:
+                medication_to_remove = med
+                break
+        
+        if medication_to_remove:
+            medication_manager.medications.remove(medication_to_remove)
+            
+            # Notify connected clients
+            socketio.emit('medication_deleted', {
+                'medication_name': medication_name
+            })
+            
+            return jsonify({'success': True, 'message': 'Medication deleted successfully'})
+        else:
+            return jsonify({'success': False, 'error': 'Medication not found'}), 404
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 400
+
+
+@app.route('/api/history', methods=['GET'])
+def get_history():
+    """Get medication history"""
+    try:
+        history = []
+        for record in medication_manager.records:
+            history.append({
+                'medication_name': record.medication.name,
+                'dosage': record.medication.dosage,
+                'scheduled_time': record.scheduled_time.isoformat(),
+                'taken': record.taken,
+                'taken_time': record.taken_time.isoformat() if record.taken_time else None,
+                'missed': record.missed,
+                'reminder_count': record.reminder_count
+            })
+        
+        # Sort by scheduled time, most recent first
+        history.sort(key=lambda x: x['scheduled_time'], reverse=True)
+        
+        return jsonify({'history': history})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 400
 
@@ -99,9 +165,26 @@ def handle_user_response():
         current_medication = medication
     
     # Mark as taken if confirmed
-    if medication and "note kar deta hoon" in response.lower():
-        scheduler.mark_medication_taken(medication)
-        current_medication = None
+    medication_taken = False
+    if medication:
+        user_input_lower = user_input.lower()
+        # Check for yes responses
+        yes_keywords = ["haan", "yes", "hmm", "le li", "le liya", "ho gaya", "done", "ok"]
+        if any(keyword in user_input_lower for keyword in yes_keywords) or "note kar deta hoon" in response.lower():
+            if scheduler:
+                scheduler.mark_medication_taken(medication)
+            medication_manager.mark_taken(medication, datetime.now())
+            current_medication = None
+            medication_taken = True
+            
+            # Notify caregiver dashboard
+            socketio.emit('medication_taken', {
+                'medication': {
+                    'name': medication.name,
+                    'dosage': medication.dosage
+                },
+                'timestamp': datetime.now().isoformat()
+            })
     
     # Check for caregiver notifications
     caregiver_alert = None
@@ -111,7 +194,7 @@ def handle_user_response():
     return jsonify({
         'response': response,
         'caregiver_alert': caregiver_alert,
-        'medication_taken': medication is not None and "note kar deta hoon" in response.lower()
+        'medication_taken': medication_taken
     })
 
 
@@ -216,6 +299,12 @@ def handle_disconnect():
     print('Client disconnected')
 
 
+@socketio.on('ping')
+def handle_ping():
+    """Handle ping to keep connection alive"""
+    emit('pong', {'status': 'ok'})
+
+
 @socketio.on('user_message')
 def handle_user_message(data):
     """Handle user message via WebSocket"""
@@ -241,8 +330,19 @@ def handle_user_message(data):
         "note kar deta hoon" in response_lower):
         medication_taken = True
         if medication:
-            scheduler.mark_medication_taken(medication)
+            if scheduler:
+                scheduler.mark_medication_taken(medication)
+            medication_manager.mark_taken(medication, datetime.now())
             current_medication = None
+            
+            # Notify caregiver dashboard
+            emit('medication_taken', {
+                'medication': {
+                    'name': medication.name,
+                    'dosage': medication.dosage
+                },
+                'timestamp': datetime.now().isoformat()
+            })
     
     # Check for caregiver notifications
     caregiver_alert = None
